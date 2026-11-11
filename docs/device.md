@@ -26,10 +26,13 @@ Pins: see "Pins and bus" below (7-bit address 0x46).
   updates in standby. Measured: 240 Hz with 128x/128x oversampling is rejected.
 - IIR filter: coefficients in DSP_IIR 0x31 (pressure in bits 5:3). The data registers hold unfiltered values
   unless DSP_CONFIG 0x30 bit3 (shdw_sel_iir_t) and bit5 (shdw_sel_iir_p) are set; DSP_CONFIG resets to 0x03.
-  Not exercised on the board.
+  The coefficients are applied and read back with `verify` on the board (hil/src/bin/bmp581_ops.rs); the
+  effect of the filter on the output is not checked.
 - Measured at 400 kHz I2C: one 6-byte read takes about 242 us. Normal mode at the 240 Hz setting gives
   238.4 Hz; continuous mode with 1x/1x oversampling gives 496 Hz; forced mode with 16x pressure and 2x
   temperature oversampling takes 11.9 ms from trigger to data-ready.
+- FIFO: the driver has `fifo_read`, `fifo_count` and `fifo_flush`; they have not run on the real chip yet
+  (host-tested against a simulated chip only).
 
 ## Pins and bus (from pinout.md)
 

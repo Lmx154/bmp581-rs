@@ -7,21 +7,7 @@
 //!
 //! Units: [`RawSample::pascals`] is pascals, [`RawSample::celsius`] is degrees Celsius.
 //!
-//! Async:
-//! ```ignore
-//! let mut baro = bmp581::Bmp581::new(i2c, bmp581::DEFAULT_ADDRESS);
-//! baro.init(&mut delay, &bmp581::Config::default()).await?;
-//! int_pin.wait_for_rising_edge().await;
-//! let sample = baro.read().await?;
-//! let (pa, deg_c) = (sample.pascals(), sample.celsius());
-//! ```
-//!
-//! Blocking:
-//! ```ignore
-//! let mut baro = bmp581::blocking::Bmp581::new(i2c, bmp581::DEFAULT_ADDRESS);
-//! baro.init(&mut delay, &bmp581::Config::default())?;
-//! let sample = baro.read()?;
-//! ```
+//! Examples: see README.md, whose examples are compiled by `cargo test`.
 #![no_std]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -72,11 +58,11 @@ pub const ALTERNATE_ADDRESS: u8 = 0x47;
 /// Soft reset duration is 2 ms at most; wait a little longer.
 const RESET_WAIT_US: u32 = 3_000;
 
-/// Quiet time of [`Bmp581::recover`]: after a cancelled read, later reads return wrong data until the
-/// bus has been quiet for 2 ms (measured on the board, 2026-11-10; contract A4g).
 /// Longest read `verify` makes: the largest read that is one fully queued frame (contract A4e).
 const VERIFY_WINDOW: u8 = 15;
 
+/// Quiet time of [`Bmp581::recover`]: after a cancelled read, later reads return wrong data until the
+/// bus has been quiet for 2 ms (measured on the board, 2026-11-10; contract A4g).
 const RECOVER_QUIET_US: u32 = 2_000;
 
 /// Flush completion: `treconf_deep`, 4 ms at most, which covers `treconf`, 3 ms (Table 4, p11; 4.6.4, p25).

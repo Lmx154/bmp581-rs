@@ -15,13 +15,15 @@
 //! off): with a valid combination it holds the requested oversampling and the valid flag; with an invalid
 //! one the flag is clear and, outside standby, the oversampling is replaced by 2x/2x (codes 1/1) at 160 Hz
 //! and above and by 4x/4x (codes 2/2) below (V3, same measurement); in standby it still echoes the
-//! request. The FIFO (4.6, p22-25): frames a test pushes, `FIFO_COUNT` derived from them, a read of
+//! request. The validity rule is a function the test chooses; the default is the datasheet table read
+//! nominally, as written independently in `settings_tests`.
+//!
+//! The FIFO (4.6, p22-25): frames a test pushes, `FIFO_COUNT` derived from them, a read of
 //! `FIFO_DATA` that stays at the port (no address increment) and pops whole frames in order, leaves an
 //! incompletely read frame in place (4.6.3, p23) and pads with the empty frame 0x7F; a push into a full
 //! FIFO deletes the oldest frame (stream) or is dropped (stop on full) and sets the FIFO-full flag when
 //! its interrupt source is enabled; a change of `FIFO_SEL` (frame or decimation), `OSR_CONFIG` or
-//! `ODR_CONFIG` (oversampling, rate, power mode) empties it and clears its flags (4.6.4, p25). The validity rule is a function the test chooses; the default is the datasheet table read
-//! nominally, as written independently in `settings_tests`.
+//! `ODR_CONFIG` (oversampling, rate, power mode) empties it and clears its flags (4.6.4, p25).
 
 use core::future::Future;
 use core::pin::{Pin, pin};
