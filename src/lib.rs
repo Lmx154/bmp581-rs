@@ -804,3 +804,7 @@ mod verify_tests;
 
 #[cfg(test)]
 mod fifo_tests;
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
