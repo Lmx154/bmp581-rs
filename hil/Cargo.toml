@@ -18,6 +18,7 @@ embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-dr
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
 embedded-hal-bus = { version = "0.3", features = ["async"] }
+embassy-embedded-hal = "0.6.0"
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"

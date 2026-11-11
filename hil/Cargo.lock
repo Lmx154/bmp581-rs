@@ -108,6 +108,7 @@ dependencies = [
  "critical-section",
  "defmt",
  "defmt-rtt",
+ "embassy-embedded-hal",
  "embassy-executor",
  "embassy-rp",
  "embassy-time",

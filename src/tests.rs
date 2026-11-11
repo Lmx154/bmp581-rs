@@ -55,12 +55,10 @@ fn config_encoders() {
     assert_eq!(c.dsp_iir(), 0);
     assert_eq!(c.int_source(), 0x01);
     assert_eq!(c.int_config(), 0x3A);
-    let c = Config {
-        pressure_iir: IirFilter::Coeff7,
-        temperature_iir: IirFilter::Coeff3,
-        data_ready_interrupt: false,
-        ..c
-    };
+    let c = c
+        .with_pressure_iir(IirFilter::Coeff7)
+        .with_temperature_iir(IirFilter::Coeff3)
+        .with_interrupt(InterruptPin::off());
     assert_eq!(c.dsp_config(), 0x03 | 0x20 | 0x08);
     assert_eq!(c.dsp_iir(), (3 << 3) | 2);
     assert_eq!(c.int_source(), 0);
@@ -171,7 +169,9 @@ fn blocking_init_then_read() {
     );
     chip.regs[0x1D..0x23].copy_from_slice(&[0x00, 0x00, 0x19, 0x00, 0x80, 0x1A]);
     let mut baro = blocking::Bmp581::new(chip, DEFAULT_ADDRESS);
-    let s = baro.read().unwrap();
+    let mut buf = [0u8; 6];
+    baro.read_registers(reg::TEMP_DATA_XLSB, &mut buf).unwrap();
+    let s = RawSample::decode(&buf);
     assert_eq!(s.celsius(), 25.0);
     assert_eq!(s.pressure, 0x1A_8000);
 }
@@ -191,6 +191,6 @@ fn init_rejects_wrong_id_and_invalid_config() {
     let mut baro = blocking::Bmp581::new(chip, DEFAULT_ADDRESS);
     assert!(matches!(
         baro.init(&mut NoDelay, &Config::default()),
-        Err(Error::InvalidConfig)
+        Err(Error::ChipRejectsRate { osr_eff: 0x00 })
     ));
 }

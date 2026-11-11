@@ -320,7 +320,7 @@ async fn main(_spawner: Spawner) {
     // 1. Init and identity.
     let c50 = Config::default();
     match baro.init(&mut delay, &c50).await {
-        Ok(()) => defmt::info!("[PASS] init: chip id, NVM and configuration accepted"),
+        Ok(_) => defmt::info!("[PASS] init: chip id, NVM and configuration accepted"),
         Err(e) => {
             defmt::error!("[FAIL] init: {}", init_error(&e));
             hil_common::exit(1)
@@ -351,14 +351,12 @@ async fn main(_spawner: Spawner) {
     );
 
     // 2b. Normal mode, fastest rate at the lowest oversampling.
-    let fast = Config {
-        pressure_oversampling: Oversampling::X1,
-        temperature_oversampling: Oversampling::X1,
-        odr: OutputDataRate::Hz240,
-        ..Config::default()
-    };
+    let fast = Config::new()
+        .with_pressure_oversampling(Oversampling::X1)
+        .with_temperature_oversampling(Oversampling::X1)
+        .with_odr(OutputDataRate::Hz240);
     match baro.init(&mut delay, &fast).await {
-        Ok(()) => {
+        Ok(_) => {
             let run = acquire(&mut baro, &mut dr).await;
             report(
                 &mut failures,
@@ -377,12 +375,9 @@ async fn main(_spawner: Spawner) {
     }
 
     // 2c. Continuous mode at the lowest oversampling: the rate is whatever the chip reaches.
-    let cont = Config {
-        power_mode: PowerMode::Continuous,
-        ..fast
-    };
+    let cont = fast.with_power_mode(PowerMode::Continuous);
     match baro.init(&mut delay, &cont).await {
-        Ok(()) => {
+        Ok(_) => {
             let run = acquire(&mut baro, &mut dr).await;
             report(&mut failures, "continuous x1/x1", &run, 0.0, false);
         }
@@ -395,26 +390,21 @@ async fn main(_spawner: Spawner) {
     }
 
     // Negative control: 240 Hz with 128x oversampling is not a valid combination.
-    let bad = Config {
-        pressure_oversampling: Oversampling::X128,
-        temperature_oversampling: Oversampling::X128,
-        odr: OutputDataRate::Hz240,
-        ..Config::default()
-    };
+    let bad = Config::new()
+        .with_pressure_oversampling(Oversampling::X128)
+        .with_temperature_oversampling(Oversampling::X128)
+        .with_odr(OutputDataRate::Hz240);
     let r = baro.init(&mut delay, &bad).await;
     check!(
         failures,
-        matches!(r, Err(Error::InvalidConfig)),
+        matches!(r, Err(Error::InvalidConfig(_))),
         "[{=str}] invalid 240 Hz x128/x128 rejected with InvalidConfig"
     );
 
     // 3. Forced mode: trigger, wait for data-ready, read.
-    let forced = Config {
-        power_mode: PowerMode::Forced,
-        ..Config::default()
-    };
+    let forced = Config::new().with_power_mode(PowerMode::Forced);
     match baro.init(&mut delay, &forced).await {
-        Ok(()) => {
+        Ok(_) => {
             let (mut sum, mut max, mut min, mut n, mut bad_n) = (0u64, 0u64, u64::MAX, 0u32, 0u32);
             let (mut p_last, mut t_last) = (0.0f32, 0.0f32);
             for _ in 0..10 {
@@ -495,7 +485,7 @@ async fn main(_spawner: Spawner) {
     );
     let mut b = bmp581::blocking::Bmp581::new(bus, bmp581::DEFAULT_ADDRESS);
     match b.init(&mut Delay, &Config::default()) {
-        Ok(()) => {
+        Ok(_) => {
             embassy_time::Timer::after_millis(60).await;
             match b.read() {
                 Ok(s) => {

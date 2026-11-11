@@ -7,7 +7,9 @@ use core::task::{Context, Poll, Waker};
 use embedded_hal::delay::DelayNs;
 use embedded_hal::i2c::{ErrorType, I2c, Operation};
 
-use crate::{Config, Error, IntStatus, RawSample};
+use crate::{
+    Config, EffectiveOversampling, Error, FifoRead, Info, IntStatus, RawSample, Stats, Status,
+};
 
 /// Async-trait view of a blocking bus. Its futures complete on the first poll.
 struct BlockingBus<I2C>(I2C);
@@ -63,16 +65,31 @@ impl<I2C: I2c> Bmp581<I2C> {
         self.inner.release().0
     }
 
-    /// Resets, checks the chip and writes `config`. See [`crate::Bmp581::init`].
+    /// Resets, checks the chip and applies `config`. See [`crate::Bmp581::init`].
     pub fn init(
         &mut self,
         delay: &mut impl DelayNs,
         config: &Config,
-    ) -> Result<(), Error<I2C::Error>> {
+    ) -> Result<Info, Error<I2C::Error>> {
         block_on(self.inner.init(&mut BlockingDelay(delay), config))
     }
 
-    /// Reads temperature and pressure in one transaction.
+    /// Applies `config` without a reset. See [`crate::Bmp581::configure`].
+    pub fn configure(
+        &mut self,
+        delay: &mut impl DelayNs,
+        config: &Config,
+    ) -> Result<Info, Error<I2C::Error>> {
+        block_on(self.inner.configure(&mut BlockingDelay(delay), config))
+    }
+
+    /// The applied configuration; `None` while not configured. See [`crate::Bmp581::config`].
+    pub const fn config(&self) -> Option<&Config> {
+        self.inner.config()
+    }
+
+    /// Reads temperature and pressure in one transaction. See [`crate::Bmp581::read`]: before the first
+    /// conversion has finished it returns [`Error::NoSample`].
     pub fn read(&mut self) -> Result<RawSample, Error<I2C::Error>> {
         block_on(self.inner.read())
     }
@@ -85,6 +102,46 @@ impl<I2C: I2c> Bmp581<I2C> {
     /// Reads and clears `INT_STATUS`.
     pub fn interrupt_status(&mut self) -> Result<IntStatus, Error<I2C::Error>> {
         block_on(self.inner.interrupt_status())
+    }
+
+    /// Reads `FIFO_COUNT`. See [`crate::Bmp581::fifo_count`].
+    pub fn fifo_count(&mut self) -> Result<u8, Error<I2C::Error>> {
+        block_on(self.inner.fifo_count())
+    }
+
+    /// Reads the count, then the whole frames that fit in `buf`. See [`crate::Bmp581::fifo_read`].
+    pub fn fifo_read(&mut self, buf: &mut [u8]) -> Result<FifoRead, Error<I2C::Error>> {
+        block_on(self.inner.fifo_read(buf))
+    }
+
+    /// Empties the FIFO. See [`crate::Bmp581::fifo_flush`].
+    pub fn fifo_flush(&mut self, delay: &mut impl DelayNs) -> Result<(), Error<I2C::Error>> {
+        block_on(self.inner.fifo_flush(&mut BlockingDelay(delay)))
+    }
+
+    /// Reads `STATUS`. See [`crate::Bmp581::status`].
+    pub fn status(&mut self) -> Result<Status, Error<I2C::Error>> {
+        block_on(self.inner.status())
+    }
+
+    /// Reads `OSR_EFF`. See [`crate::Bmp581::effective_oversampling`].
+    pub fn effective_oversampling(&mut self) -> Result<EffectiveOversampling, Error<I2C::Error>> {
+        block_on(self.inner.effective_oversampling())
+    }
+
+    /// Compares the registers the applied configuration owns. See [`crate::Bmp581::verify`].
+    pub fn verify(&mut self) -> Result<(), Error<I2C::Error>> {
+        block_on(self.inner.verify())
+    }
+
+    /// Re-syncs the bus and checks the chip. See [`crate::Bmp581::recover`].
+    pub fn recover(&mut self, delay: &mut impl DelayNs) -> Result<(), Error<I2C::Error>> {
+        block_on(self.inner.recover(&mut BlockingDelay(delay)))
+    }
+
+    /// The counters. See [`crate::Bmp581::stats`].
+    pub const fn stats(&self) -> Stats {
+        self.inner.stats()
     }
 
     /// Reads one register.
