@@ -31,8 +31,14 @@ Pins: see "Pins and bus" below (7-bit address 0x46).
 - Measured at 400 kHz I2C: one 6-byte read takes about 242 us. Normal mode at the 240 Hz setting gives
   238.4 Hz; continuous mode with 1x/1x oversampling gives 496 Hz; forced mode with 16x pressure and 2x
   temperature oversampling takes 11.9 ms from trigger to data-ready.
-- FIFO: the driver has `fifo_read`, `fifo_count` and `fifo_flush`; they have not run on the real chip yet
-  (host-tested against a simulated chip only).
+- FIFO: the driver has `fifo_read`, `fifo_count` and `fifo_flush`; `hil/src/bin/bmp581_fifo.rs` runs them on
+  the real chip. Measured depth (logs `bmp581_fifo-20261111-180444` and `-181709`, one chip): in streaming mode
+  `FIFO_COUNT` stops at 15 pressure and temperature frames or 31 frames of one quantity (stable over 100 ms),
+  `INT_STATUS.fifo_full` is set and the FIFO-full interrupt fires once; in stop-on-full mode it stops at 16
+  and 32. The datasheet says 16 and 32 for both (4.7.2.1, p26: FIFO full at "16 PT frames or 32 P or T
+  frames"; 4.6.1: threshold at most 15 and 31). The chip does not say whether a count at the streaming limit
+  means loss has begun or is one frame away; use the flag. The driver's `FifoRead::full` is true at these
+  limits.
 
 ## Pins and bus (from pinout.md)
 

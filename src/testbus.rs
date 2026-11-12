@@ -22,7 +22,8 @@
 //! `FIFO_DATA` that stays at the port (no address increment) and pops whole frames in order, leaves an
 //! incompletely read frame in place (4.6.3, p23) and pads with the empty frame 0x7F; a push into a full
 //! FIFO deletes the oldest frame (stream) or is dropped (stop on full) and sets the FIFO-full flag when
-//! its interrupt source is enabled; a change of `FIFO_SEL` (frame or decimation), `OSR_CONFIG` or
+//! its interrupt source is enabled; as on the chip, a streaming FIFO is full one frame short of the
+//! datasheet depth (15 P+T frames, 31 of one quantity), a stop-on-full FIFO at it (16, 32); a change of `FIFO_SEL` (frame or decimation), `OSR_CONFIG` or
 //! `ODR_CONFIG` (oversampling, rate, power mode) empties it and clears its flags (4.6.4, p25).
 
 use core::future::Future;
@@ -220,13 +221,25 @@ impl Chip {
         }
     }
 
+    /// Frames the FIFO holds before it is full. Stop on full: the capacity (16 or 32 frames, 4.6, p22; the
+    /// P+T figure measured on the chip, the single-quantity 32 too). Streaming: one less, as measured on
+    /// the chip (the count stops at 15 and 31 with the FIFO-full flag set), against the datasheet's 16 and 32.
+    fn fifo_limit(&self) -> usize {
+        let capacity = self.fifo_capacity();
+        if self.regs[usize::from(reg::FIFO_CONFIG)] & reg::FIFO_CONFIG_STOP_ON_FULL != 0 {
+            capacity
+        } else {
+            capacity.saturating_sub(1)
+        }
+    }
+
     /// A new frame arrives from the measurement.
     pub fn fifo_push(&mut self, frame: &[u8]) {
-        let capacity = self.fifo_capacity();
-        if capacity == 0 {
+        let limit = self.fifo_limit();
+        if self.fifo_capacity() == 0 {
             return;
         }
-        if self.fifo.len() >= capacity {
+        if self.fifo.len() >= limit {
             if self.regs[usize::from(reg::FIFO_CONFIG)] & reg::FIFO_CONFIG_STOP_ON_FULL != 0 {
                 return;
             }
@@ -235,7 +248,7 @@ impl Chip {
         self.fifo.push(frame.to_vec());
         let full_enabled =
             self.regs[usize::from(reg::INT_SOURCE)] & reg::INT_SOURCE_FIFO_FULL_EN != 0;
-        if self.fifo.len() == capacity && full_enabled {
+        if self.fifo.len() == limit && full_enabled {
             self.regs[usize::from(reg::INT_STATUS)] |= reg::INT_STATUS_FIFO_FULL;
         }
     }

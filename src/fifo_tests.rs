@@ -252,7 +252,9 @@ proptest! {
         waiting_seed in 0usize..=32,
         len in 0usize..=120,
     ) {
-        let waiting = waiting_seed.min(usize::from(data.capacity_frames()));
+        // A streaming FIFO of the chip stops one frame short of the datasheet depth (measured).
+        let limit = usize::from(data.capacity_frames()) - 1;
+        let waiting = waiting_seed.min(limit);
         let size = data.frame_bytes();
         let (s, mut b, _dl) = rig(&cfg(data, FifoMode::Stream));
         let pushed: Vec<Vec<u8>> = (0..waiting).map(|i| frame(data, i as u8)).collect();
@@ -269,7 +271,7 @@ proptest! {
             prop_assert_eq!(got.bytes, n * size);
             prop_assert_eq!(usize::from(got.frames), n);
             prop_assert_eq!(usize::from(got.waiting), waiting - n);
-            prop_assert_eq!(got.full, waiting == usize::from(data.capacity_frames()));
+            prop_assert_eq!(got.full, waiting == limit);
             prop_assert_eq!(s.transactions(), if n == 0 { 1 } else { 2 });
             prop_assert!(buf[got.bytes..].iter().all(|&x| x == 0xAA));
             let want: Vec<FifoFrame<'_>> = pushed.iter().take(n).flat_map(|f| decode(data, f)).collect();
@@ -310,24 +312,32 @@ fn fifo_read_golden_trace_with_nothing_waiting_is_one_transaction() {
 }
 
 #[test]
-fn fifo_read_whole_fifo_is_one_burst_of_96_bytes() {
+fn fifo_read_whole_fifo_is_one_burst() {
+    // Stop on full holds the datasheet depth, 96 bytes in every kind; a streaming FIFO of the chip holds
+    // one frame less (measured), so 90 bytes of pressure and temperature, 93 of one quantity.
     for data in KINDS {
-        let (s, mut b, _dl) = rig(&cfg(data, FifoMode::Stream));
-        for i in 0..data.capacity_frames() {
-            s.push_frame(&frame(data, i));
+        for (mode, held) in [
+            (FifoMode::StopOnFull, data.capacity_frames()),
+            (FifoMode::Stream, data.capacity_frames() - 1),
+        ] {
+            let (s, mut b, _dl) = rig(&cfg(data, mode));
+            for i in 0..data.capacity_frames() {
+                s.push_frame(&frame(data, i));
+            }
+            let mut buf = [0u8; 200];
+            s.arm(None, None);
+            let got = run(b.fifo_read(&mut buf)).unwrap();
+            let bytes = usize::from(held) * data.frame_bytes();
+            assert_eq!(
+                (got.bytes, got.frames, got.waiting, got.full),
+                (bytes, held, 0, true)
+            );
+            let log = s.log();
+            assert_eq!(log.len(), 2);
+            assert!(
+                matches!(&log[1], Event::I2c { ops, .. } if matches!(&ops[1], testbus::Op::Read(v) if v.len() == bytes))
+            );
         }
-        let mut buf = [0u8; 200];
-        s.arm(None, None);
-        let got = run(b.fifo_read(&mut buf)).unwrap();
-        assert_eq!(
-            (got.bytes, got.frames, got.waiting, got.full),
-            (96, data.capacity_frames(), 0, true)
-        );
-        let log = s.log();
-        assert_eq!(log.len(), 2);
-        assert!(
-            matches!(&log[1], Event::I2c { ops, .. } if matches!(&ops[1], testbus::Op::Read(v) if v.len() == 96))
-        );
     }
 }
 
@@ -355,14 +365,15 @@ fn fifo_read_limits_by_the_buffer_and_leaves_the_rest_waiting() {
 fn fifo_read_reports_full_once_per_call_and_counts_it() {
     let data = FifoData::PressureAndTemperature;
     let (s, mut b, _dl) = rig(&cfg(data, FifoMode::Stream));
+    // The streaming FIFO of the chip holds 15 of the 16 frames pushed (measured): its limit.
     for i in 0..16 {
         s.push_frame(&frame(data, i));
     }
     let mut one = [0u8; 6];
     let got = run(b.fifo_read(&mut one)).unwrap();
-    assert!(got.full && got.waiting == 15);
+    assert!(got.full && got.waiting == 14);
     assert_eq!(b.stats().fifo_full, 1);
-    // Not full any more: 15 frames wait.
+    // Not full any more: 14 frames wait.
     let got = run(b.fifo_read(&mut one)).unwrap();
     assert!(!got.full);
     assert_eq!((b.stats().fifo_full, b.stats().fifo_frames), (1, 2));
@@ -371,6 +382,73 @@ fn fifo_read_reports_full_once_per_call_and_counts_it() {
     let mut big = [0u8; 200];
     let got = run(b.fifo_read(&mut big)).unwrap();
     assert!(got.full && got.frames == 16 && got.waiting == 0);
+}
+
+#[test]
+fn streaming_fifo_is_full_at_the_chips_limit_and_the_read_counts_it() {
+    // Measured on the chip: in streaming mode the count stops at 15 (P+T) or 31 (one quantity) with the
+    // FIFO-full flag set, one below the datasheet depth of 16 and 32.
+    for data in KINDS {
+        let limit = data.capacity_frames() - 1;
+        let (s, mut b, _dl) = rig(&cfg(data, FifoMode::Stream));
+        for i in 0..data.capacity_frames() + 5 {
+            s.push_frame(&frame(data, i));
+        }
+        assert_eq!(s.fifo_len(), usize::from(limit));
+        let mut buf = [0u8; 200];
+        let got = run(b.fifo_read(&mut buf)).unwrap();
+        assert!(got.full, "{data:?}");
+        assert_eq!((got.frames, got.waiting), (limit, 0));
+        assert_eq!(b.stats().fifo_full, 1);
+        // One frame short of the limit is not full.
+        for i in 0..limit - 1 {
+            s.push_frame(&frame(data, i));
+        }
+        let got = run(b.fifo_read(&mut buf)).unwrap();
+        assert!(!got.full && got.frames == limit - 1);
+        assert_eq!(b.stats().fifo_full, 1);
+    }
+}
+
+#[test]
+fn stop_on_full_fifo_is_full_at_the_datasheet_depth_and_the_read_counts_it() {
+    for data in KINDS {
+        let capacity = data.capacity_frames();
+        let (s, mut b, _dl) = rig(&cfg(data, FifoMode::StopOnFull));
+        for i in 0..capacity - 1 {
+            s.push_frame(&frame(data, i));
+        }
+        let mut buf = [0u8; 200];
+        let got = run(b.fifo_read(&mut buf)).unwrap();
+        assert!(!got.full && got.frames == capacity - 1);
+        assert_eq!(b.stats().fifo_full, 0);
+        for i in 0..capacity + 5 {
+            s.push_frame(&frame(data, i));
+        }
+        assert_eq!(s.fifo_len(), usize::from(capacity));
+        let got = run(b.fifo_read(&mut buf)).unwrap();
+        assert!(got.full, "{data:?}");
+        assert_eq!((got.frames, got.waiting), (capacity, 0));
+        assert_eq!(b.stats().fifo_full, 1);
+    }
+}
+
+#[test]
+fn fake_fifo_sets_the_full_flag_at_the_limit_of_each_mode() {
+    for (mode, limit) in [(FifoMode::Stream, 15usize), (FifoMode::StopOnFull, 16)] {
+        let data = FifoData::PressureAndTemperature;
+        let c = cfg(data, mode).with_interrupt(
+            InterruptPin::new().with_sources(InterruptSources::none().with_fifo_full(true)),
+        );
+        let (s, mut b, _dl) = rig(&c);
+        for i in 0..limit - 1 {
+            s.push_frame(&frame(data, i as u8));
+        }
+        assert!(!run(b.interrupt_status()).unwrap().fifo_full);
+        s.push_frame(&frame(data, 99));
+        assert!(run(b.interrupt_status()).unwrap().fifo_full);
+        assert_eq!(b.stats().fifo_full, 1);
+    }
 }
 
 #[test]
@@ -398,15 +476,15 @@ fn fifo_full_is_counted_by_the_interrupt_status_read_and_counters_saturate() {
 #[test]
 fn fifo_read_after_overflow_returns_what_the_chip_kept() {
     let data = FifoData::Pressure;
-    for (mode, first) in [(FifoMode::Stream, 5u8), (FifoMode::StopOnFull, 0)] {
+    for (mode, first, kept) in [(FifoMode::Stream, 6u8, 31u8), (FifoMode::StopOnFull, 0, 32)] {
         let (s, mut b, _dl) = rig(&cfg(data, mode));
         for i in 0..37 {
             s.push_frame(&frame(data, i));
         }
         let mut buf = [0u8; 200];
         let got = run(b.fifo_read(&mut buf)).unwrap();
-        assert!(got.full && got.frames == 32);
-        // Stream keeps the newest 32 (frames 5..37), stop on full keeps the oldest (0..32).
+        assert!(got.full && got.frames == kept);
+        // Stream keeps the newest 31 (frames 6..37), stop on full keeps the oldest (0..32).
         assert_eq!(
             decode(data, &buf[..3])[0],
             decode(data, &frame(data, first))[0]

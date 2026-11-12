@@ -147,13 +147,15 @@ pub struct Stats {
     /// Bus errors the driver returned (each failed transaction, the tolerated missing acknowledge of
     /// the reset command excluded).
     pub bus_errors: u32,
-    /// FIFO-full conditions seen: a [`Bmp581::fifo_read`] whose frame count equalled the capacity of the
-    /// configured frame kind, and each `INT_STATUS` read ([`Bmp581::interrupt_status`]) that showed the
-    /// FIFO-full flag (7.21, p58). One full FIFO seen by both ways is counted by both. What the chip does
-    /// when it is full (4.6.1, p23): in streaming mode the oldest frame is deleted and the new one written,
-    /// so frames are LOST and the FIFO holds the most recent ones; in stop-on-full mode new frames are NOT
-    /// written until there is space again, so the new measurements are lost and the FIFO holds the oldest.
-    /// A full FIFO means the loss has begun or is imminent, not how many frames were lost.
+    /// FIFO-full conditions seen: a [`Bmp581::fifo_read`] whose frame count was at the limit of the
+    /// configured mode and frame kind (see [`FifoRead::full`]), and each `INT_STATUS` read
+    /// ([`Bmp581::interrupt_status`]) that showed the FIFO-full flag (7.21, p58). One full FIFO seen by both
+    /// ways is counted by both. What the chip does when it is full (4.6.1, p23): in streaming mode the
+    /// oldest frame is deleted and the new one written, so frames are LOST and the FIFO holds the most
+    /// recent ones; in stop-on-full mode new frames are NOT written until there is space again, so the new
+    /// measurements are lost and the FIFO holds the oldest. A full FIFO means the loss has begun or is
+    /// imminent, not how many frames were lost. The exact indicator in streaming mode is the FIFO-full flag
+    /// of `interrupt_status` or the FIFO-full interrupt, not the count read by `fifo_read`.
     pub fifo_full: u32,
     /// Frames returned by [`Bmp581::fifo_read`]; frames of a read that failed are not counted.
     pub fifo_frames: u32,
@@ -171,9 +173,15 @@ pub struct FifoRead {
     /// Frames still in the FIFO after this call, as far as the count read at its start knows: the count
     /// minus `frames`. The chip may have written more since.
     pub waiting: u8,
-    /// The count equalled (or exceeded) the capacity of the configured frame kind, 16 frames for pressure
-    /// and temperature and 32 for one quantity (4.6, p22): the FIFO was full and, as new measurements
-    /// arrive, frames are being lost (see [`Stats::fifo_full`] for what the chip does in each mode).
+    /// The count was at the limit of the configured mode and frame kind. Stop on full: the capacity, 16
+    /// frames for pressure and temperature and 32 for one quantity (4.6, p22); the FIFO is full and new
+    /// measurements are being lost. Streaming mode: one frame less, 15 and 31, because the chip's count stops
+    /// there with the FIFO-full flag set, although the datasheet gives 16 and 32 (4.6.1, p23, and 4.7.2.1,
+    /// p26, FIFO full at "16 PT frames or 32 P or T frames"); measured on one chip, for both kinds in
+    /// streaming mode and for 16 and 32 in stop-on-full mode. In streaming mode `full` therefore means that
+    /// loss has begun OR is one frame away: the chip does not say which and gives no count of the frames
+    /// lost. The exact indicator is the FIFO-full flag of [`Bmp581::interrupt_status`] or the FIFO-full
+    /// interrupt. See [`Stats::fifo_full`] for what the chip does in each mode.
     pub full: bool,
 }
 
@@ -536,7 +544,20 @@ impl<I2C: I2c> Bmp581<I2C> {
         }
         let capacity = data.capacity_frames();
         let raw = self.read_register(reg::FIFO_COUNT).await? & reg::FIFO_COUNT_MASK;
-        let full = raw >= capacity;
+        // Streaming mode: the count stops at the depth minus one, 15 and 31 frames, with the FIFO-full flag
+        // set (measured on one chip, logs bmp581_fifo-20261111-180444 and bmp581_fifo-20261111-181709;
+        // the datasheet says 16 and 32). Stop on full: the count reaches 16 (same logs) and 32 for one
+        // quantity (bmp581_fifo-20261111-181709).
+        let stream = self
+            .config
+            .as_ref()
+            .is_some_and(|c| c.fifo.mode == FifoMode::Stream);
+        let full = raw
+            >= if stream {
+                capacity.saturating_sub(1)
+            } else {
+                capacity
+            };
         if full {
             self.stats.fifo_full = self.stats.fifo_full.saturating_add(1);
         }
