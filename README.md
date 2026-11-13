@@ -2,11 +2,13 @@
 
 Driver for the Bosch BMP581 barometric pressure sensor over I2C, `no_std`, async (`embedded-hal-async` 1.0) with a blocking front-end (`embedded-hal` 1.0). Those two crates are the only dependencies; `defmt` 1.0 is optional. There is no executor, HAL, pin or timer in the crate. It is written for the MARV V2 Rev 1 flight controller (RP2354B).
 
-Status: version 0.1.0, `publish = false`, and the API may still change. Parts of it have run on the real sensor and parts have not; "Not covered" below says which.
+Status: version 0.1.0, prepared for crates.io, and the API may still change. Parts of it have run on the real sensor and parts have not; "Not covered" below says which.
 
 ## Works with
 
 The driver works with any HAL and any MCU whose I2C bus and delay implement `embedded-hal-async` 1.0 (async driver) or `embedded-hal` 1.0 (`blocking` module). No embassy crate is needed.
+
+On crates.io the package is named `bmp581-async` (the name `bmp581` belongs to another crate). Depend on it with `bmp581-async = "0.1.0"` in `Cargo.toml`; the library is still called `bmp581`, so the code says `use bmp581::...`.
 
 ## Quick start
 

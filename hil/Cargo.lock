@@ -90,7 +90,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bmp581"
+name = "bmp581-async"
 version = "0.1.0"
 dependencies = [
  "defmt",
@@ -102,7 +102,7 @@ dependencies = [
 name = "bmp581-hil"
 version = "0.1.0"
 dependencies = [
- "bmp581",
+ "bmp581-async",
  "cortex-m",
  "cortex-m-rt",
  "critical-section",

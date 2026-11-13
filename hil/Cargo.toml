@@ -10,7 +10,7 @@ license = "MIT"
 name = "hil_common"
 
 [dependencies]
-bmp581 = { path = "..", features = ["defmt"] }
+bmp581 = { package = "bmp581-async", path = "..", features = ["defmt"] }
 
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime"] }
