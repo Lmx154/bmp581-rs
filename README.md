@@ -4,6 +4,10 @@ Driver for the Bosch BMP581 barometric pressure sensor over I2C, `no_std`, async
 
 Status: version 0.1.0, `publish = false`, and the API may still change. Parts of it have run on the real sensor and parts have not; "Not covered" below says which.
 
+## Works with
+
+The driver works with any HAL and any MCU whose I2C bus and delay implement `embedded-hal-async` 1.0 (async driver) or `embedded-hal` 1.0 (`blocking` module). No embassy crate is needed.
+
 ## Quick start
 
 ```rust,no_run
